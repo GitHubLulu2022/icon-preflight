@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "百宝箱图标预审",
+  "short_name": "百宝箱图标预审",
+  "description": "本地图标规范预审工具",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#f5f7fa",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
