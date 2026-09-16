@@ -3,6 +3,8 @@
 
   const MAX_PIXELS = 1000 * 1000;
   const MAX_FRAMES = 2000;
+  const VISUAL_SAMPLE_SIZE = 20;
+  const VISUAL_CHANGE_THRESHOLD = 4;
 
   class Reader {
     constructor(bytes) {
@@ -142,6 +144,54 @@
     return hash >>> 0;
   }
 
+  function visualSignature(pixels, width, height) {
+    const sampleWidth = Math.min(VISUAL_SAMPLE_SIZE, width);
+    const sampleHeight = Math.min(VISUAL_SAMPLE_SIZE, height);
+    const signature = new Uint8Array(sampleWidth * sampleHeight * 4);
+
+    for (let sampleY = 0; sampleY < sampleHeight; sampleY += 1) {
+      const startY = Math.floor(sampleY * height / sampleHeight);
+      const endY = Math.max(startY + 1, Math.floor((sampleY + 1) * height / sampleHeight));
+      for (let sampleX = 0; sampleX < sampleWidth; sampleX += 1) {
+        const startX = Math.floor(sampleX * width / sampleWidth);
+        const endX = Math.max(startX + 1, Math.floor((sampleX + 1) * width / sampleWidth));
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+        let alpha = 0;
+        let count = 0;
+
+        for (let y = startY; y < endY; y += 1) {
+          for (let x = startX; x < endX; x += 1) {
+            const offset = (y * width + x) * 4;
+            const pixelAlpha = pixels[offset + 3] / 255;
+            red += pixels[offset] * pixelAlpha;
+            green += pixels[offset + 1] * pixelAlpha;
+            blue += pixels[offset + 2] * pixelAlpha;
+            alpha += pixels[offset + 3];
+            count += 1;
+          }
+        }
+
+        const target = (sampleY * sampleWidth + sampleX) * 4;
+        signature[target] = Math.round(red / count);
+        signature[target + 1] = Math.round(green / count);
+        signature[target + 2] = Math.round(blue / count);
+        signature[target + 3] = Math.round(alpha / count);
+      }
+    }
+    return signature;
+  }
+
+  function visualDifference(previous, current) {
+    if (!previous || !current || previous.length !== current.length) return Infinity;
+    let difference = 0;
+    for (let index = 0; index < current.length; index += 1) {
+      difference += Math.abs(current[index] - previous[index]);
+    }
+    return difference / current.length;
+  }
+
   function hasTransparentPixels(pixels) {
     for (let index = 3; index < pixels.length; index += 4) {
       if (pixels[index] === 0) return true;
@@ -166,26 +216,22 @@
     const dynamicFrames = frames.filter((frame) => frame.startMs < boundaryMs);
     const hasDynamicChange = dynamicFrames.some((frame, index) => index > 0 && frame.hash !== dynamicFrames[index - 1].hash);
     const typicalDelay = median(dynamicFrames.map((frame) => frame.delayMs).filter((delay) => delay > 0));
-    const stableFrames = [];
     let maxTransitionFrames = 0;
+    let transitionFrames = 0;
 
-    for (let index = 0; index < dynamicFrames.length; index += 1) {
+    for (let index = 1; index < dynamicFrames.length; index += 1) {
       const frame = dynamicFrames[index];
       const previous = dynamicFrames[index - 1];
-      const next = dynamicFrames[index + 1];
-      const isStable = frame.delayMs > typicalDelay * 1.5
-        || frame.hash === previous?.hash
-        || frame.hash === next?.hash
-        || index === 0
-        || index === dynamicFrames.length - 1;
-      if (isStable) stableFrames.push(index);
-    }
-
-    for (let index = 1; index < stableFrames.length; index += 1) {
-      maxTransitionFrames = Math.max(
-        maxTransitionFrames,
-        Math.max(0, stableFrames[index] - stableFrames[index - 1] - 1)
-      );
+      const followsLongHold = previous.delayMs > typicalDelay * 1.5;
+      const isLongHold = frame.delayMs > typicalDelay * 1.5;
+      const isVisualChange = visualDifference(previous.signature, frame.signature) >= VISUAL_CHANGE_THRESHOLD;
+      if (followsLongHold) transitionFrames = 0;
+      if (isVisualChange && !isLongHold) {
+        transitionFrames += 1;
+        maxTransitionFrames = Math.max(maxTransitionFrames, transitionFrames);
+      } else {
+        transitionFrames = 0;
+      }
     }
 
     return {
@@ -286,6 +332,7 @@
         startMs: elapsedMs,
         delayMs: gce.delayMs,
         hash: hashPixels(canvas),
+        signature: visualSignature(canvas, width, height),
         hasTransparency: hasTransparentPixels(canvas)
       });
       elapsedMs += gce.delayMs;
@@ -303,5 +350,5 @@
     };
   }
 
-  window.GifAnalyzer = { analyze };
+  window.GifAnalyzer = { analyze, summarizeFrames: timingSummary };
 })();

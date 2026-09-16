@@ -1,6 +1,6 @@
 "use strict";
 
-const STATIC_CACHE = "icon-preflight-static-v6";
+const STATIC_CACHE = "icon-preflight-static-v7";
 const APP_SHELL = ["./", "index.html", "styles.css", "app.js", "gif-analyzer.js", "manifest.webmanifest", "app-icon.svg"];
 
 self.addEventListener("install", (event) => {

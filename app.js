@@ -175,7 +175,7 @@
       makeCheck(
         "动静转场",
         transitionPass ? "pass" : "fail",
-        transitionPass ? "最长连续转场不超过 10 帧" : "动态过程中的单段连续转场超过 10 帧",
+        transitionPass ? "最长连续视觉转场不超过 10 帧" : "动态过程中的单段连续视觉转场超过 10 帧",
         `${gif.maxTransitionFrames} 帧`
       ),
       makeCheck(
