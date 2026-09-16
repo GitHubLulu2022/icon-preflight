@@ -2,6 +2,10 @@
   "use strict";
 
   const LIMIT_BYTES = 15 * 1024;
+  const GIF_LIMIT_BYTES = 1024 * 1024;
+  const GIF_TARGET_MS = 8000;
+  const GIF_PHASE_MS = 4000;
+  const GIF_TIME_TOLERANCE_MS = 50;
   const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
   const elements = {
     intro: document.querySelector("#intro"),
@@ -15,6 +19,7 @@
     replaceButton: document.querySelector("#replace-button"),
     previewStage: document.querySelector("#preview-stage"),
     previewCanvas: document.querySelector("#preview-canvas"),
+    gifPreview: document.querySelector("#gif-preview"),
     fileCaption: document.querySelector("#file-caption"),
     summary: document.querySelector("#summary"),
     summaryMark: document.querySelector("#summary-mark"),
@@ -26,6 +31,7 @@
 
   let toastTimer;
   let currentBitmap;
+  let currentGifUrl;
 
   function formatBytes(bytes) {
     return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
@@ -132,6 +138,83 @@
   function makeCheck(name, tone, detail, value) {
     const marks = { pass: "✓", warn: "!", fail: "×" };
     return { name, tone, detail, value, mark: marks[tone] };
+  }
+
+  function withinTime(actual, expected) {
+    return Math.abs(actual - expected) <= GIF_TIME_TOLERANCE_MS;
+  }
+
+  function formatSeconds(milliseconds) {
+    return `${(milliseconds / 1000).toFixed(2).replace(/\.00$/, "")} 秒`;
+  }
+
+  function evaluateGif(file, gif) {
+    const durationPass = withinTime(gif.totalMs, GIF_TARGET_MS);
+    const structurePass = withinTime(gif.dynamicMs, GIF_PHASE_MS)
+      && withinTime(gif.staticMs, GIF_PHASE_MS)
+      && gif.hasDynamicChange
+      && gif.staticSectionStable;
+    const transitionPass = gif.maxTransitionFrames <= 10;
+    const dimensionsPass = gif.width === 200 && gif.height === 200;
+    const formatPass = gif.hasTransparentBackground;
+    const sizePass = file.size <= GIF_LIMIT_BYTES;
+
+    return [
+      makeCheck(
+        "总时长",
+        durationPass ? "pass" : "fail",
+        durationPass ? "符合 8 秒总时长" : "GIF 总时长必须为 8 秒",
+        formatSeconds(gif.totalMs)
+      ),
+      makeCheck(
+        "动静结构",
+        structurePass ? "pass" : "fail",
+        structurePass ? "前 4 秒动态，后 4 秒保持最终画面" : "需要前 4 秒动态、后 4 秒静止",
+        `${formatSeconds(gif.dynamicMs)} + ${formatSeconds(gif.staticMs)}`
+      ),
+      makeCheck(
+        "动静转场",
+        transitionPass ? "pass" : "fail",
+        transitionPass ? "最长连续转场不超过 10 帧" : "动态过程中的单段连续转场超过 10 帧",
+        `${gif.maxTransitionFrames} 帧`
+      ),
+      makeCheck(
+        "尺寸",
+        dimensionsPass ? "pass" : "fail",
+        dimensionsPass ? "符合统一画布尺寸" : "必须导出为 200 × 200 px",
+        `${gif.width} × ${gif.height}`
+      ),
+      makeCheck(
+        "格式与透明底",
+        formatPass ? "pass" : "fail",
+        formatPass ? "真实 GIF，且每个合成帧均保留透明背景" : "GIF 必须使用透明背景",
+        formatPass ? "GIF / 透明" : "GIF / 不透明"
+      ),
+      makeCheck(
+        "文件大小",
+        sizePass ? "pass" : "fail",
+        sizePass ? "原始 GIF 未超过 1 MB" : `超出 ${formatBytes(file.size - GIF_LIMIT_BYTES)}`,
+        formatBytes(file.size)
+      )
+    ];
+  }
+
+  function showGifPreview(file) {
+    currentBitmap?.close?.();
+    currentBitmap = null;
+    if (currentGifUrl) URL.revokeObjectURL(currentGifUrl);
+    currentGifUrl = URL.createObjectURL(file);
+    elements.previewCanvas.hidden = true;
+    elements.gifPreview.hidden = false;
+    elements.gifPreview.src = currentGifUrl;
+  }
+
+  function showCanvasPreview() {
+    if (currentGifUrl) URL.revokeObjectURL(currentGifUrl);
+    currentGifUrl = null;
+    elements.gifPreview.removeAttribute("src");
+    elements.gifPreview.hidden = true;
+    elements.previewCanvas.hidden = false;
   }
 
   function evaluate(file, image, png, pixels, source, detectedFormat) {
@@ -246,6 +329,16 @@
 
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const detectedFormat = detectImageFormat(bytes, file);
+      if (detectedFormat === "GIF") {
+        const gif = window.GifAnalyzer.analyze(bytes);
+        showGifPreview(file);
+        renderChecks(evaluateGif(file, gif));
+        if (source === "clipboard") showToast("已读取剪贴板 GIF。文件大小需使用下载后的原文件核验。", 3200);
+        return;
+      }
+
+      showCanvasPreview();
       const png = readPngMetadata(bytes);
       const bitmap = await decodeImage(file);
       currentBitmap?.close?.();
@@ -271,12 +364,12 @@
         ? analyzePixels(context.getImageData(0, 0, canvas.width, canvas.height))
         : null;
 
-      renderChecks(evaluate(file, image, png, pixels, source, detectImageFormat(bytes, file)));
+      renderChecks(evaluate(file, image, png, pixels, source, detectedFormat));
       if (source === "clipboard") showToast("已读取剪贴板图片。结果基于浏览器收到的文件。", 3200);
     } catch (error) {
       console.error(error);
       renderChecks([
-        makeCheck("读取图片", "fail", "浏览器无法解析这张图片，请改用原始 PNG 文件", "读取失败")
+        makeCheck("读取图片", "fail", "浏览器无法解析这张图片，请改用原始图片文件", "读取失败")
       ]);
     }
   }
@@ -290,7 +383,7 @@
 
   async function readClipboard() {
     if (!navigator.clipboard?.read) {
-      showToast("当前浏览器不支持主动读取图片。请长按页面粘贴，或选择原始 PNG。", 4200);
+      showToast("当前浏览器不支持主动读取图片。请长按页面粘贴，或选择原始文件。", 4200);
       elements.dropZone.focus?.();
       return;
     }
@@ -340,7 +433,7 @@
       try {
         await navigator.share({
           title: "百宝箱图标预审",
-          text: "用这个工具检查图标尺寸、PNG 格式、透明背景、文件大小和内容占比。",
+          text: "用这个工具检查 PNG 与 GIF 图标的尺寸、格式、透明背景、文件大小和动效时序。",
           url
         });
         return;

@@ -1,7 +1,7 @@
 "use strict";
 
-const STATIC_CACHE = "icon-preflight-static-v5";
-const APP_SHELL = ["./", "index.html", "styles.css", "app.js", "manifest.webmanifest", "app-icon.svg"];
+const STATIC_CACHE = "icon-preflight-static-v6";
+const APP_SHELL = ["./", "index.html", "styles.css", "app.js", "gif-analyzer.js", "manifest.webmanifest", "app-icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(APP_SHELL)));
