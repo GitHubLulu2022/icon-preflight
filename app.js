@@ -35,6 +35,20 @@
     return PNG_SIGNATURE.every((value, index) => bytes[index] === value);
   }
 
+  function detectImageFormat(bytes, file) {
+    if (isPng(bytes)) return "PNG";
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "JPEG";
+    if (
+      bytes.length >= 12
+      && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
+      && String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+    ) return "WebP";
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "GIF";
+
+    const mime = file.type?.replace(/^image\//, "");
+    return mime ? mime.toUpperCase() : "未知";
+  }
+
   function readPngMetadata(bytes) {
     if (!isPng(bytes) || bytes.length < 33) return null;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -120,29 +134,29 @@
     return { name, tone, detail, value, mark: marks[tone] };
   }
 
-  function evaluate(file, png, pixels, source) {
+  function evaluate(file, image, png, pixels, source, detectedFormat) {
     const checks = [];
-    const dimensionsPass = png && png.width === 200 && png.height === 200;
+    const dimensionsPass = image.width === 200 && image.height === 200;
     checks.push(makeCheck(
       "画布尺寸",
       dimensionsPass ? "pass" : "fail",
       dimensionsPass ? "符合统一画布尺寸" : "必须导出为 200 × 200 px",
-      png ? `${png.width} × ${png.height}` : "无法读取"
+      `${image.width} × ${image.height}`
     ));
 
     checks.push(makeCheck(
       "文件格式",
       png ? "pass" : "fail",
       png ? "已通过 PNG 文件签名校验" : "图片内容不是有效 PNG",
-      png ? "PNG" : file.type || "未知"
+      detectedFormat
     ));
 
-    const transparentPass = Boolean(png?.hasAlphaChannel && pixels?.hasTransparentPixels);
+    const transparentPass = Boolean(pixels?.hasTransparentPixels);
     checks.push(makeCheck(
       "透明背景",
       transparentPass ? "pass" : "fail",
       transparentPass ? "检测到真实透明像素" : "需要 Alpha 通道和透明背景像素",
-      png?.hasAlphaChannel ? (pixels?.hasTransparentPixels ? "有透明像素" : "无透明像素") : "无 Alpha"
+      pixels?.hasTransparentPixels ? "有透明像素" : "无透明像素"
     ));
 
     if (source === "clipboard") {
@@ -165,7 +179,7 @@
     let areaTone = "warn";
     let areaDetail = "没有识别到可见主体，请人工确认";
     let areaValue = "待确认";
-    if (pixels?.bounds && png?.width === 200 && png?.height === 200) {
+    if (pixels?.bounds && dimensionsPass) {
       const b = pixels.bounds;
       const insideProduction = b.x >= 5 && b.y >= 5 && b.right <= 194 && b.bottom <= 194;
       areaTone = insideProduction ? "pass" : "fail";
@@ -233,25 +247,31 @@
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const png = readPngMetadata(bytes);
-      let pixels = null;
+      const bitmap = await decodeImage(file);
+      currentBitmap?.close?.();
+      currentBitmap = bitmap;
 
-      if (png && png.width === 200 && png.height === 200) {
-        const bitmap = await decodeImage(file);
-        currentBitmap?.close?.();
-        currentBitmap = bitmap;
-        const canvas = elements.previewCanvas;
-        canvas.width = png.width;
-        canvas.height = png.height;
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(bitmap, 0, 0);
-        pixels = analyzePixels(context.getImageData(0, 0, canvas.width, canvas.height));
-      } else {
-        const context = elements.previewCanvas.getContext("2d");
-        context.clearRect(0, 0, elements.previewCanvas.width, elements.previewCanvas.height);
-      }
+      const image = { width: bitmap.width, height: bitmap.height };
+      const canvas = elements.previewCanvas;
+      canvas.width = 200;
+      canvas.height = 200;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      const previewScale = Math.min(canvas.width / image.width, canvas.height / image.height);
+      const previewWidth = image.width * previewScale;
+      const previewHeight = image.height * previewScale;
+      context.drawImage(
+        bitmap,
+        (canvas.width - previewWidth) / 2,
+        (canvas.height - previewHeight) / 2,
+        previewWidth,
+        previewHeight
+      );
+      const pixels = image.width === 200 && image.height === 200
+        ? analyzePixels(context.getImageData(0, 0, canvas.width, canvas.height))
+        : null;
 
-      renderChecks(evaluate(file, png, pixels, source));
+      renderChecks(evaluate(file, image, png, pixels, source, detectImageFormat(bytes, file)));
       if (source === "clipboard") showToast("已读取剪贴板图片。结果基于浏览器收到的文件。", 3200);
     } catch (error) {
       console.error(error);

@@ -7,9 +7,9 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="description" content="在浏览器本地完成 200px PNG 图标预审。" />
     <title>百宝箱图标预审</title>
-    <link rel="manifest" href="manifest.webmanifest?v=4" />
+    <link rel="manifest" href="manifest.webmanifest?v=5" />
     <link rel="icon" href="app-icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body>
     <main class="app-shell">
@@ -31,7 +31,7 @@
           <p id="drop-hint">复制图片后，点击下方按钮读取剪贴板</p>
         </div>
         <label class="file-button primary-button" for="file-input">选择原始 PNG</label>
-        <input id="file-input" type="file" accept="image/png,.png" hidden />
+        <input id="file-input" type="file" accept="image/*,.png,.jpg,.jpeg,.webp" hidden />
         <button class="paste-button" id="paste-button" type="button">粘贴并预审</button>
         <button class="share-tool-button" id="share-tool-button" type="button">分享这个工具</button>
         <p class="compatibility-note">若浏览器不支持读取剪贴板，请长按此区域粘贴，或选择原始文件。</p>
@@ -80,6 +80,6 @@
     </main>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
   </body>
 </html>
