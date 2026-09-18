@@ -3,8 +3,10 @@
 
   const LIMIT_BYTES = 15 * 1024;
   const GIF_LIMIT_BYTES = 1024 * 1024;
-  const GIF_TARGET_MS = 8000;
+  const GIF_MIN_MS = 7000;
+  const GIF_MAX_MS = 8000;
   const GIF_PHASE_MS = 4000;
+  const GIF_MIN_STATIC_MS = 3000;
   const GIF_TIME_TOLERANCE_MS = 50;
   const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
   const elements = {
@@ -149,9 +151,10 @@
   }
 
   function evaluateGif(file, gif) {
-    const durationPass = withinTime(gif.totalMs, GIF_TARGET_MS);
+    const durationPass = gif.totalMs >= GIF_MIN_MS && gif.totalMs <= GIF_MAX_MS;
     const structurePass = withinTime(gif.dynamicMs, GIF_PHASE_MS)
-      && withinTime(gif.staticMs, GIF_PHASE_MS)
+      && gif.staticMs >= GIF_MIN_STATIC_MS
+      && gif.staticMs <= GIF_PHASE_MS
       && gif.hasDynamicChange
       && gif.staticSectionStable;
     const transitionPass = gif.maxTransitionFrames <= 10;
@@ -163,13 +166,13 @@
       makeCheck(
         "总时长",
         durationPass ? "pass" : "fail",
-        durationPass ? "符合 8 秒总时长" : "GIF 总时长必须为 8 秒",
+        durationPass ? "总时长在 7–8 秒内" : "GIF 总时长必须在 7–8 秒内",
         formatSeconds(gif.totalMs)
       ),
       makeCheck(
         "动静结构",
         structurePass ? "pass" : "fail",
-        structurePass ? "前 4 秒动态，后 4 秒保持最终画面" : "需要前 4 秒动态、后 4 秒静止",
+        structurePass ? "约 4 秒动态，末尾 3–4 秒保持最终画面" : "需要约 4 秒动态、末尾 3–4 秒静止",
         `${formatSeconds(gif.dynamicMs)} + ${formatSeconds(gif.staticMs)}`
       ),
       makeCheck(

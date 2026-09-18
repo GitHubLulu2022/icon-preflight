@@ -207,12 +207,15 @@
   function timingSummary(frames) {
     const totalMs = frames.reduce((sum, frame) => sum + frame.delayMs, 0);
     const boundaryMs = 4000;
-    const boundaryFrame = frames.find((frame) => frame.startMs <= boundaryMs && frame.startMs + frame.delayMs > boundaryMs)
-      || frames.find((frame) => frame.startMs >= boundaryMs)
-      || frames.at(-1);
-    const staticSectionStable = frames
-      .filter((frame) => frame.startMs >= boundaryMs)
-      .every((frame) => frame.hash === boundaryFrame.hash);
+    const finalHash = frames.at(-1).hash;
+    let finalStaticStart = frames.length - 1;
+    while (finalStaticStart > 0 && frames[finalStaticStart - 1].hash === finalHash) {
+      finalStaticStart -= 1;
+    }
+    const staticMs = frames
+      .slice(finalStaticStart)
+      .reduce((sum, frame) => sum + frame.delayMs, 0);
+    const dynamicMs = totalMs - staticMs;
     const dynamicFrames = frames.filter((frame) => frame.startMs < boundaryMs);
     const hasDynamicChange = dynamicFrames.some((frame, index) => index > 0 && frame.hash !== dynamicFrames[index - 1].hash);
     const typicalDelay = median(dynamicFrames.map((frame) => frame.delayMs).filter((delay) => delay > 0));
@@ -236,9 +239,9 @@
 
     return {
       totalMs,
-      dynamicMs: Math.min(boundaryMs, totalMs),
-      staticMs: Math.max(0, totalMs - boundaryMs),
-      staticSectionStable,
+      dynamicMs,
+      staticMs,
+      staticSectionStable: staticMs > 0,
       hasDynamicChange,
       maxTransitionFrames
     };
